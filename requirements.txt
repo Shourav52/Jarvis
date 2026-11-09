@@ -1,8 +1,8 @@
 faster-whisper
 sounddevice
 numpy
-scipy
 openai
 edge-tts
 pygame
 python-dotenv
+requests
