@@ -7,7 +7,7 @@ import asyncio
 import os
 import tempfile
 import time
-
+import re
 import edge_tts
 import numpy as np
 import pygame
@@ -93,6 +93,7 @@ def ask_llm(user_text):
     return reply
 
 
+
 def speak(text, lang):
     voice = VOICES.get(lang, VOICES["en"])
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
@@ -105,13 +106,26 @@ def speak(text, lang):
     pygame.mixer.music.unload()
     os.remove(path)
 
-END_WORDS = {"bye", "goodbye", "stop", "exit", "that's all", "stop jarvis"}
+END_WORDS = {"bye", "goodbye", "stop", "exit" ,"stop jarvis","quit", "shesh", "bondho", "thik ache", "thik aache", "thik achhe", "thik aachhe"}
+def is_echo(text, last_reply):
+    """Jarvis er nijer kotha mic e dhukle ota ignore kore."""
+    if not last_reply:
+        return False
+    a = set(re.sub(r"[^a-z' ]", "", text.lower()).split())
+    b = set(re.sub(r"[^a-z' ]", "", last_reply.lower()).split())
+    return len(a) >= 2 and len(a & b) / len(a) >= 0.6
 
+
+def is_end_command(text):
+    cleaned = re.sub(r"[^a-z' ]", "", text.lower()).strip()
+    words = cleaned.split()
+    return cleaned == "thats all" or (len(words) <= 10 and any(w in END_WORDS for w in words))
 def main():
     print("Jarvis ready. Enter chepe shuru koro. Bondho korte Ctrl+C.\n")
     while True:
         input("[Enter chapo] ")
         print("Conversation shuru. 'bye' bolle ba 10 sec chup thakle shesh hobe.\n")
+        last_reply = ""
         while True:
             print("Shunchi...")
             audio = record_until_silence()
@@ -122,18 +136,20 @@ def main():
             if not text:
                 continue
             print(f"Tumi ({lang}): {text}")
-            if text.lower().strip(" .!?") in END_WORDS:
+            if is_end_command(text):
                 speak("Okay, bye!", "en")
                 break
+            if is_echo(text, last_reply):
+                continue
             try:
                 reply = ask_llm(text)
             except Exception as e:
                 print(f"LLM error: {e}\n")
                 continue
             print(f"Jarvis: {reply}\n")
+            last_reply = reply
             speak(reply, lang if lang in VOICES else "en")
-            time.sleep(0.5)
-
+            time.sleep(1.2)  # wait before next recording
 if __name__ == "__main__":
     try:
         main()
