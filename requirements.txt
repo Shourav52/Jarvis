@@ -6,3 +6,8 @@ edge-tts
 pygame
 python-dotenv
 requests
+python-docx
+reportlab
+python-pptx
+openpyxl
+pypdf
