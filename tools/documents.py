@@ -7,7 +7,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
-from .common import after_create, output_path
+from .common import after_create, output_path, user_format
 
 TOOLS = [{
     "type": "function",
@@ -97,7 +97,7 @@ def _make_pdf(path, title, blocks):
 def create_document(args):
     title = args.get("title") or "Document"
     content = args.get("content") or ""
-    fmt = (args.get("format") or "docx").lower()
+    fmt = (user_format() or args.get("format") or "docx").lower()
     if fmt not in ("docx", "pdf", "both"):
         fmt = "docx"
     print(f"[Creating {fmt}: {title}]")

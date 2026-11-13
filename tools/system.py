@@ -1,8 +1,13 @@
 """open_app, open_url, set_timer (macOS)."""
+import json
+import re
 import subprocess
 import sys
 import threading
 import webbrowser
+from urllib.parse import quote_plus
+
+import requests
 
 TOOLS = [
     {"type": "function", "function": {
@@ -11,8 +16,12 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}},
     {"type": "function", "function": {
         "name": "open_url",
-        "description": "Open a website in the browser.",
+        "description": "Open a website the user named (its home page). Never invent deep links or video IDs.",
         "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
+    {"type": "function", "function": {
+        "name": "play_music",
+        "description": "Play a song or video: opens the top YouTube result for the search words.",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {
         "name": "set_timer",
         "description": "Set a timer or reminder that notifies the user after some minutes (works while Jarvis is running).",
@@ -46,6 +55,32 @@ def open_url(args):
     return f"Opened {url}."
 
 
+def play_music(args):
+    """YouTube er asol top result kholey. (LLM er banano video ID kokhono na: oita Rick Roll dey.)"""
+    q = (args.get("query") or "").strip()
+    if not q:
+        return "What should I play?"
+    video, title = None, ""
+    try:
+        r = requests.get("https://www.youtube.com/results", params={"search_query": q}, timeout=10,
+                         headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "en"})
+        m = re.search(r'"videoRenderer":\{"videoId":"([\w-]{11})"', r.text)
+        if m:
+            video = m.group(1)
+            t = re.search(r'"videoId":"%s".{0,1500}?"title":\{"runs":\[\{"text":"(.*?)"\}' % video, r.text, re.S)
+            if t:
+                try:
+                    title = json.loads('"' + t.group(1) + '"')
+                except ValueError:
+                    title = t.group(1)
+    except requests.RequestException:
+        pass
+    url = f"https://www.youtube.com/watch?v={video}" if video else f"https://www.youtube.com/results?search_query={quote_plus(q)}"
+    print(f"[Playing: {title or q}]")
+    webbrowser.open(url)
+    return f"Playing '{title or q}' on YouTube." if video else f"Opened the YouTube search for '{q}'."
+
+
 def _fire(label):
     msg = label or "Time is up"
     print(f"\n[Timer done: {msg}]")
@@ -70,4 +105,4 @@ def set_timer(args):
     return f"Timer set for {minutes:g} minutes. It only works while Jarvis stays running."
 
 
-HANDLERS = {"open_app": open_app, "open_url": open_url, "set_timer": set_timer}
+HANDLERS = {"open_app": open_app, "open_url": open_url, "play_music": play_music, "set_timer": set_timer}

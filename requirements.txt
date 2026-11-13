@@ -11,3 +11,7 @@ reportlab
 python-pptx
 openpyxl
 pypdf
+scipy
+scikit-learn
+tqdm
+# Wake word (Python 3.12+ e alada install): pip install --no-deps openwakeword
