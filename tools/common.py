@@ -115,3 +115,4 @@ def copy_to_clipboard(text):
         return True
     except Exception:
         return False
+    

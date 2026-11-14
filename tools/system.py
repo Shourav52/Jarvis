@@ -106,3 +106,4 @@ def set_timer(args):
 
 
 HANDLERS = {"open_app": open_app, "open_url": open_url, "play_music": play_music, "set_timer": set_timer}
+

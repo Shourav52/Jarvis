@@ -25,11 +25,11 @@ TOOLS = [
     {"type": "function", "function": {
         "name": "send_pending_email",
         "description": "Send the staged email. Only after the user has said yes to it in a LATER message.",
-        "parameters": {"type": "object", "properties": {}}}},
+        "parameters": {"type": "object", "properties": {"note": {"type": "string", "description": "Optional, leave empty"}}}}},
     {"type": "function", "function": {
         "name": "open_email_draft",
         "description": "Open the staged email as a Gmail compose window (when sending from Jarvis is not set up).",
-        "parameters": {"type": "object", "properties": {}}}},
+        "parameters": {"type": "object", "properties": {"note": {"type": "string", "description": "Optional, leave empty"}}}}},
 ]
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")

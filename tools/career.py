@@ -70,7 +70,7 @@ TOOLS = [
     {"type": "function", "function": {
         "name": "export_applications",
         "description": "Save the application tracker as an Excel file and open it.",
-        "parameters": {"type": "object", "properties": {}}}},
+        "parameters": {"type": "object", "properties": {"note": {"type": "string", "description": "Optional, leave empty"}}}}},
     {"type": "function", "function": {
         "name": "interview_mode",
         "description": "Turn mock-interview mode on/off (gives the user more time to answer).",
@@ -188,7 +188,10 @@ def find_jobs(args):
     key = os.getenv("TAVILY_API_KEY")
     if not key:
         return "Web search is not set up (TAVILY_API_KEY missing)."
-    place = (args.get("location") or os.getenv("JOB_LOCATION") or "Bangladesh").strip()
+    loc = (args.get("location") or "").strip()
+    if loc and loc.lower() not in (common.LAST_USER_TEXT or "").lower():
+        loc = ""        # user bole ni, model nijei guess korechhe (jemon New York)
+    place = (loc or os.getenv("JOB_LOCATION") or "Bangladesh").strip()
     query = f"{args.get('query', '')} {place} job opening apply".strip()
     print(f"[Jobs khujchi: {query}]")
     domains = ["bdjobs.com", "linkedin.com", "indeed.com", "glassdoor.com", "wellfound.com",
@@ -370,3 +373,4 @@ HANDLERS = {
     "update_application": update_application, "export_applications": export_applications,
     "interview_mode": interview_mode,
 }
+

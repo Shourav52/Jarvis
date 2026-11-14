@@ -29,6 +29,7 @@ from dotenv import load_dotenv
 import openai
 from openai import OpenAI
 
+VERSION = "4.2"
 load_dotenv()
 
 from tools import memory_prompt, run_tool, select_tools  # noqa: E402
@@ -40,7 +41,7 @@ from tools.files import recent_file_titles  # noqa: E402
 SAMPLE_RATE = 16000
 CHUNK_SEC = 0.1
 SILENCE_THRESHOLD = 0.015   # mic khub sensitive/kom hole eta change koro
-SILENCE_END_SEC = 1.6       # eto sec chup thakle recording shesh
+SILENCE_END_SEC = 2.0       # eto sec chup thakle recording shesh
 WAIT_START_SEC = 15         # eto sec er moddhe kotha na bolle conversation shesh
 MAX_RECORD_SEC = 30
 
@@ -52,7 +53,7 @@ GROQ_STT_MODEL = os.getenv("GROQ_STT_MODEL", "whisper-large-v3-turbo")
 VOICES = {"bn": "bn-BD-NabanitaNeural", "en": "en-US-AriaNeural"}
 END_WORDS = {"bye", "goodbye", "stop", "exit"}
 MAX_TOOL_ROUNDS = 8         # ek proshne max koto bar tool chalabe
-MAX_HISTORY = 16            # kotha mone rakhar limit (message sonkha)
+MAX_HISTORY = 12            # kotha mone rakhar limit (message sonkha)
 EDGE_TIMEOUT = 5            # edge-tts eto sec e na ashle chhere dey (age atke thakto)
 TTS_BACKEND = os.getenv("TTS_BACKEND", "edge")   # "edge" | "groq" (English, druto) | "mac" (instant)
 GROQ_TTS_MODEL = os.getenv("GROQ_TTS_MODEL", "canopylabs/orpheus-v1-english")
@@ -106,6 +107,7 @@ def build_system_prompt(lang="en", extra=""):
         "- 1-3 short sentences. No markdown, bullets, emojis, or URLs. Reply once, never repeat yourself, "
         "never write your reasoning. Never read out a URL; anything longer than three sentences (emails, "
         "letters, posts, essays) goes through a tool or a document, never into your spoken reply.\n"
+        "- 'Wait a minute' or 'hold on' just means pause: answer 'Of course, sir.' and set no timer.\n"
         "- The user's speech is transcribed automatically and may contain mistakes. If a request "
         "makes no sense, ask ONE short question instead of guessing.\n"
         "Tools:\n"
@@ -488,7 +490,7 @@ def _compact_turn(start):
     """Ei proshner tool result ar boro file content chhoto kore, jate history halka thake."""
     for m in history[start:]:
         if m.get("role") == "tool":
-            m["content"] = m["content"][:1200]
+            m["content"] = m["content"][:600]
         elif m.get("role") == "assistant" and m.get("tool_calls"):
             for tc in m["tool_calls"]:
                 if tc["function"]["name"].startswith("create_"):
@@ -615,7 +617,7 @@ def main():
     wake = make_wake()
     prepare_greetings()
     mode = "'Hey Jarvis' bolo" if wake else "Enter chapo"
-    print(f"Jarvis ready (speech: {STT_BACKEND}). {mode}. Bondho korte Ctrl+C.\n")
+    print(f"Jarvis v{VERSION} ready (speech: {STT_BACKEND}). {mode}. Bondho korte Ctrl+C.\n")
     while True:
         if wake:
             print("Shunchi: 'Hey Jarvis' bolo...")
@@ -676,3 +678,4 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nBye!")
+        
