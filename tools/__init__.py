@@ -11,6 +11,23 @@ from .notes import memory_prompt  # noqa: F401
 _MODULES = [web, documents, slides, sheets, notes, files, system, career, mail]
 TOOLS = [t for m in _MODULES for t in m.TOOLS]
 HANDLERS = {k: v for m in _MODULES for k, v in m.HANDLERS.items()}
+
+
+def _relax_enums(node):
+    """Groq 'enum' er baire kono value (jemon faka) hole puro tool call 400 diye bhenge dey. Enum soriye
+    shobdo gulo description e rakhi; code nijei vul value thik kore."""
+    if isinstance(node, dict):
+        if isinstance(node.get("enum"), list):
+            values = node.pop("enum")
+            node["description"] = (node.get("description", "") + f" One of: {', '.join(map(str, values))}.").strip()
+        for v in node.values():
+            _relax_enums(v)
+    elif isinstance(node, list):
+        for v in node:
+            _relax_enums(v)
+
+
+_relax_enums(TOOLS)
 _BY_NAME = {t["function"]["name"]: t for t in TOOLS}
 MAX_RESULT_CHARS = 12000
 
@@ -72,9 +89,14 @@ GROUPS = {
                "letter or post in your reply: always use prepare_email / write_job_email / the writer tools. "
                "Tracker: log_application when the user applied or wants to track a job; list/update/export. "
                "find_jobs ranks postings against the resume: say the top 2-3, offer to log them as wishlist. "
-               "Interview practice: interview_mode(on=true, role), then ONE question at a time (mix technical and "
-               "behavioral), after each answer 1-2 sentences of feedback (one strength, one fix); after 5 answers "
-               "give a score out of 10 and 3 tips, call interview_mode(on=false) and offer to save the feedback as a doc."),
+               "When the user says 'the job I copied', call the writer tool IMMEDIATELY (job defaults to the clipboard). "
+               "Never ask for the recipient or the job title first: leave the recipient empty, the user adds it in "
+               "the mail app. Interview practice: interview_mode(on=true, role), then ONE question at a time (mix technical and "
+               "behavioral). After EVERY answer give 1-2 sentences of feedback (one strength, one fix) BEFORE the next "
+               "question. Do not call interview_mode(on=false) until 5 answers are done or the user says stop; then "
+               "give a score out of 10 and 3 tips and offer to save the feedback as a doc. "
+               "open_email_draft where=gmail opens Gmail (no attachment: the resume must be dragged in, never say it "
+               "is attached); where=mail opens the Mac Mail app with the resume attached."),
     "system": dict(
         pattern=r"\b(open|launch|start|timer|minutes?|seconds?|website|browser|github|youtube|app|play|songs?|music|video)\b",
         tools=["open_app", "open_url", "play_music", "set_timer"],
@@ -108,4 +130,3 @@ def run_tool(name, args):
         return str(fn(args or {}))[:MAX_RESULT_CHARS]
     except Exception as e:  # tool error LLM ke bole dey, program crash kore na
         return f"Tool {name} failed: {e}"
-    

@@ -4,6 +4,8 @@ import os
 import re
 import smtplib
 import ssl
+import subprocess
+import sys
 import time
 import urllib.parse
 import webbrowser
@@ -28,8 +30,10 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {"note": {"type": "string", "description": "Optional, leave empty"}}}}},
     {"type": "function", "function": {
         "name": "open_email_draft",
-        "description": "Open the staged email as a Gmail compose window (when sending from Jarvis is not set up).",
-        "parameters": {"type": "object", "properties": {"note": {"type": "string", "description": "Optional, leave empty"}}}}},
+        "description": "Open the staged email for the user to send themselves. Leave 'where' empty: it uses the Mac Mail "
+                       "app (resume attached automatically) when possible, else Gmail compose (cannot attach files).",
+        "parameters": {"type": "object", "properties": {
+            "where": {"type": "string", "enum": ["gmail", "mail"]}}}}},
 ]
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -53,8 +57,14 @@ def _clean_address(to):
 
 
 def _spoken(text):
-    t = re.sub(r"\s+at\s+", "@", (text or "").lower())
+    """User er bola 'rupon at the rate gmail dot com' / 'R-U-P-O-N' ke address er moto kore (milate)."""
+    t = (text or "").lower()
+    t = re.sub(r"\b((?:[a-z0-9][-\s]){2,}[a-z0-9])\b",                   # R-U-P-O-N -> rupon
+               lambda m: re.sub(r"[-\s]", "", m.group(1)), t)
+    t = re.sub(r"\s+at\s+the\s+rate(\s+of)?\s+|\s+at\s+sign\s+|\s+at\s+", "@", t)
     t = re.sub(r"\s+dot\s+", ".", t)
+    t = re.sub(r"\s+(underscore)\s+", "_", t)
+    t = re.sub(r"\s+(dash|hyphen)\s+", "-", t)
     return re.sub(r"\s+", "", t)
 
 
@@ -86,13 +96,18 @@ def stage_email(to, subject, body, attach_resume=False):
     print("\n----- EMAIL DRAFT (pathano hoyni) -----\n" + text + "---------------------------------------\n")
     copy_to_clipboard(text)
     addr, pw = _creds()
-    ask = ("Read the recipient and subject back and ask the user whether to send it. Do NOT send yet."
-           if addr and pw else
-           "Sending from Jarvis is not set up, so read the recipient and subject back and ask whether to open "
-           "it in Gmail so the user can press Send. Use open_email_draft after their yes; do not call send_pending_email.")
-    return (f"Draft ready{' for ' + to if to else ' (no recipient yet)'}, subject '{subject.strip()}'"
-            + (f", with {os.path.basename(attach)} attached" if attach else "")
-            + f". It is shown in the terminal and copied to the clipboard. {ask}")
+    if addr and pw:
+        ask = "Read the recipient and subject back and ask the user whether to send it. Do NOT send yet."
+        att = f", with {os.path.basename(attach)} attached" if attach else ""
+    else:
+        ask = ("Sending from Jarvis is not set up. Ask only: 'Shall I open the draft for you, sir?' Do not ask "
+               "which app: after their yes call open_email_draft with no arguments (it uses the Mac Mail app, which "
+               "attaches the resume automatically, and falls back to Gmail, which cannot attach files). Never say the "
+               "resume is attached until open_email_draft says so; do not call send_pending_email.")
+        att = f", resume {os.path.basename(attach)} ready to attach" if attach else ""
+    return (f"Draft ready{' for ' + to if to else ' (no recipient yet)'}, subject '{subject.strip()}'{att}. "
+            f"It is shown in the terminal and copied to the clipboard. {ask} Reply in ONE short sentence and never "
+            f"read the draft aloud.")
 
 
 def prepare_email(args):
@@ -177,10 +192,83 @@ def send_pending_email(args):
     return f"Email sent to {p['to']}."
 
 
+MAIL_SCRIPT = """on run argv
+    set theSubject to item 1 of argv
+    set theBody to item 2 of argv
+    set theTo to item 3 of argv
+    set thePath to item 4 of argv
+    set theFrom to item 5 of argv
+    tell application "Mail"
+        set m to make new outgoing message with properties {subject:theSubject, content:theBody & return & return, visible:true}
+        if theFrom is not "" then
+            try
+                set sender of m to theFrom
+            end try
+        end if
+        tell m
+            if theTo is not "" then make new to recipient at end of to recipients with properties {address:theTo}
+            if thePath is not "" then make new attachment with properties {file name:thePath} at after the last paragraph
+        end tell
+        activate
+    end tell
+end run"""
+
+
+def _mail_has_account():
+    """Mail app e kono email account set up ache kina."""
+    try:
+        r = subprocess.run(["osascript", "-e", 'tell application "Mail" to count of accounts'],
+                           capture_output=True, text=True, timeout=30)
+    except Exception:
+        return False, "could not talk to the Mail app"
+    out = r.stdout.strip()
+    if r.returncode != 0:
+        return False, r.stderr.strip()
+    return (out.isdigit() and int(out) > 0), "" if (out.isdigit() and int(out) > 0) else "the Mail app has no email account set up"
+
+
+def _open_in_mail_app(p):
+    """Mac Mail app e draft, resume attach shoho. (ok, error). Prothom bar Automation permission chaibe."""
+    if sys.platform != "darwin":
+        return False, "the Mail app is only available on a Mac"
+    has, why = _mail_has_account()
+    if not has:
+        if "-1743" in why or "not allowed" in why.lower() or "not authorized" in why.lower():
+            why = ("Mac blocked it. Allow Terminal (or VS Code) under System Settings > Privacy & Security > "
+                   "Automation > Mail, then try again")
+        return False, why or "the Mail app is not set up"
+    try:
+        r = subprocess.run(["osascript", "-e", MAIL_SCRIPT, p["subject"], p["body"], p["to"], p["attach"] or "",
+                            os.getenv("MAIL_SENDER") or os.getenv("GMAIL_ADDRESS") or ""],
+                           capture_output=True, text=True, timeout=40)
+    except Exception as e:
+        return False, str(e)
+    if r.returncode != 0:
+        err = r.stderr.strip()
+        if "-1743" in err or "not allowed" in err.lower():
+            err = ("Mac blocked it. Allow Terminal (or VS Code) under System Settings > Privacy & Security > "
+                   "Automation > Mail, then try again")
+        return False, err
+    return True, ""
+
+
 def open_email_draft(args):
     p = _pending
     if not p:
         return "There is no staged email."
+    where = (args.get("where") or os.getenv("EMAIL_APP") or "").strip().lower()
+    if where not in ("mail", "gmail"):        # faka ba onno kono value hole code nijei thik kore
+        where = "mail" if p["attach"] else "gmail"
+    if where == "mail":
+        ok, err = _open_in_mail_app(p)
+        if ok:
+            print("[Mail app compose opened]")
+            return ("The Mail app has the draft" + (" with the resume attached" if p["attach"] else "")
+                    + ". Please review and press Send yourself.")
+        print(f"(Mail app khola gelo na: {err})")
+        fallback = f" The Mail app could not be used ({err[:110]}), so I opened Gmail instead."
+    else:
+        fallback = ""
     base = "https://mail.google.com/mail/?view=cm&fs=1"
     url = f"{base}&to={urllib.parse.quote(p['to'])}&su={urllib.parse.quote(p['subject'])}" \
           f"&body={urllib.parse.quote(p['body'])}"
@@ -192,9 +280,9 @@ def open_email_draft(args):
     webbrowser.open(url)
     if p["attach"]:
         launch(p["attach"], reveal=True)
-        note += " Your resume is shown in Finder, drag it into the email."
+        note += " Gmail cannot attach files by itself: your resume is shown in Finder, drag it into the email."
     print("[Gmail compose opened]")
-    return "Gmail compose is open with the draft. Please review and press Send yourself." + note
+    return "Gmail compose is open with the draft. Please review and press Send yourself." + note + fallback
 
 
 HANDLERS = {"prepare_email": prepare_email, "send_pending_email": send_pending_email,

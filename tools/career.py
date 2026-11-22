@@ -21,21 +21,21 @@ TOOLS = [
         "name": "write_cover_letter",
         "description": "Write a cover letter from the user's resume for a job and save it as a document.",
         "parameters": {"type": "object", "properties": {
-            "job": {"type": "string", "description": "Job link, the word 'clipboard', or a short description"},
+            "job": {"type": "string", "description": "Job link or short description. Empty = the text the user copied"},
             "company": {"type": "string"}, "notes": {"type": "string"},
-            "format": {"type": "string", "enum": ["docx", "pdf", "both"]}}, "required": ["job"]}}},
+            "format": {"type": "string", "enum": ["docx", "pdf", "both"]}}, "required": []}}},
     {"type": "function", "function": {
         "name": "tailor_resume",
         "description": "Rewrite the user's resume for a job (only facts from the resume) and save it as a document.",
         "parameters": {"type": "object", "properties": {
             "job": {"type": "string"}, "company": {"type": "string"},
-            "format": {"type": "string", "enum": ["docx", "pdf", "both"]}}, "required": ["job"]}}},
+            "format": {"type": "string", "enum": ["docx", "pdf", "both"]}}, "required": []}}},
     {"type": "function", "function": {
         "name": "write_job_email",
         "description": "Write a job application email and stage it (not sent). The recipient must come from the user.",
         "parameters": {"type": "object", "properties": {
             "job": {"type": "string"}, "to": {"type": "string", "description": "Only an address the user said; else empty"},
-            "notes": {"type": "string"}, "attach_resume": {"type": "boolean"}}, "required": ["job"]}}},
+            "notes": {"type": "string"}, "attach_resume": {"type": "boolean"}}, "required": []}}},
     {"type": "function", "function": {
         "name": "write_linkedin_post",
         "description": "Write a LinkedIn post about a project or achievement; shown in the terminal and copied.",
@@ -79,7 +79,8 @@ TOOLS = [
 ]
 
 HONESTY = ("Use ONLY facts that appear in the RESUME. Never invent employers, job titles, skills, tools, "
-           "degrees, dates or numbers. If the job asks for something the resume does not show, do not claim it.")
+           "degrees, dates or numbers. If the job asks for something the resume does not show, do not claim it. "
+           "Do not exaggerate: no words like 'extensive', 'expert' or 'proven' unless the resume says so.")
 
 COVER_SYSTEM = (
     "You write job application cover letters for {name}. " + HONESTY + " "
@@ -102,10 +103,11 @@ EMAIL_SYSTEM = (
 
 POST_SYSTEM = (
     "You write LinkedIn posts for {name}, a software engineering student and MERN/Next.js developer. Use only the "
-    "FACTS given; never invent metrics, users or results. 90-150 words, first person, a one-line hook, short "
-    "paragraphs: what I built, the tech, one honest lesson, a closing question. 3-5 hashtags, at most 2 emojis. "
-    "Mention ONLY technologies and features that appear in FACTS. Plain text: no markdown, no ** or headings. "
-    "Output only the post.")
+    "FACTS given; never invent metrics, users, results, scenes, anecdotes, feelings or milestones (do not say "
+    "'finished', 'launched' or 'shipped' unless FACTS say so). 70-130 words, first person, a one-line hook taken "
+    "from the FACTS, short paragraphs: what it is, the tech, why it is useful, a closing question. Add a lesson "
+    "only if FACTS contain one. 3-5 hashtags, at most 1 emoji. Mention ONLY technologies and features that "
+    "appear in FACTS. Plain text: no markdown, no ** or headings. Output only the post.")
 
 RANK_SYSTEM = (
     "You help {name} find jobs. From the numbered SEARCH RESULTS pick up to 5 that are real job or internship "
@@ -122,7 +124,7 @@ def _fmt(args):
 def write_cover_letter(args):
     try:
         resume, rname = resume_text()
-        job = job_text(args.get("job"))
+        job = job_text(args.get("job") or "clipboard")
     except ValueError as e:
         return str(e)
     print("[Cover letter likha hocche...]")
@@ -135,7 +137,7 @@ def write_cover_letter(args):
 def tailor_resume(args):
     try:
         resume, rname = resume_text()
-        job = job_text(args.get("job"))
+        job = job_text(args.get("job") or "clipboard")
     except ValueError as e:
         return str(e)
     print("[Resume tailor hocche...]")
@@ -150,7 +152,7 @@ def tailor_resume(args):
 def write_job_email(args):
     try:
         resume, rname = resume_text()
-        job = job_text(args.get("job"))
+        job = job_text(args.get("job") or "clipboard")
     except ValueError as e:
         return str(e)
     attach = bool(args.get("attach_resume", True))
@@ -163,15 +165,18 @@ def write_job_email(args):
 
 
 def write_linkedin_post(args):
-    from .notes import memory_prompt
+    from .notes import _memory_lines
     facts = (args.get("topic") or "") + "\n" + (args.get("notes") or "")
+    skip = {"about", "project", "write", "linkedin", "post", "with", "that", "this", "have", "from", "make", "want"}
+    topic_words = {w for w in re.findall(r"[a-z]{4,}", facts.lower())} - skip
     if args.get("source_file"):
         found = files._search(args["source_file"], None)[0]
         if found:
             path = found[0][2]
             facts += "\n\nPROJECT FILE:\n" + files._extract(path, os.path.splitext(path)[1].lower())[:3000]
-    mem = memory_prompt()
-    if len(facts.strip()) + len(mem) < 250:
+    # Shudhu topic er sathe milano memory (noile Jarvis er kotha cat er post e dhuke jay)
+    mem = "\n".join(l for l in _memory_lines() if topic_words & set(re.findall(r"[a-z]{4,}", l.lower())))
+    if len(facts.strip()) + len(mem) < 100:
         return ("I only know the project's name, not what it does, and I will not invent details. Ask the user for "
                 "the tech stack, what it does and one thing they learned (they can also say 'remember that my "
                 "project is ...' so I keep it).")
@@ -348,11 +353,26 @@ def pending_brief():
 
 # ------------------------------------------------------------------ interview mode
 _interview = False
+_interview_turns = 0
+
+
+def bump_interview_turn():
+    global _interview_turns
+    _interview_turns += 1
 
 
 def interview_mode(args):
-    global _interview
-    _interview = bool(args.get("on"))
+    """Model beshi tara-tari off kore dile (1ta uttor er por) ota atkay."""
+    global _interview, _interview_turns
+    on = bool(args.get("on"))
+    if not on and _interview:
+        said = (common.LAST_USER_TEXT or "").lower()
+        wants_end = re.search(r"\b(stop|end|finish\w*|done|enough|quit|exit|score|results?|that's all|thats all)\b", said)
+        if _interview_turns < 5 and not wants_end:
+            return ("The interview is NOT over yet. Give feedback on the last answer (one strength, one fix), "
+                    "then ask the next question.")
+    _interview = on
+    _interview_turns = 0
     print(f"[Interview mode: {'on' if _interview else 'off'}]")
     return "Interview mode on. Ask the first question now." if _interview else "Interview mode off."
 
@@ -373,4 +393,3 @@ HANDLERS = {
     "update_application": update_application, "export_applications": export_applications,
     "interview_mode": interview_mode,
 }
-

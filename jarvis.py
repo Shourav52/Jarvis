@@ -29,12 +29,12 @@ from dotenv import load_dotenv
 import openai
 from openai import OpenAI
 
-VERSION = "4.2"
+VERSION = "4.5"
 load_dotenv()
 
 from tools import memory_prompt, run_tool, select_tools  # noqa: E402
 from tools import common as tools_common  # noqa: E402
-from tools.career import interview_active, pending_brief, set_interview  # noqa: E402
+from tools.career import bump_interview_turn, interview_active, pending_brief, set_interview  # noqa: E402
 from tools.files import recent_file_titles  # noqa: E402
 
 # ---------- Settings ----------
@@ -64,8 +64,23 @@ REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "low")  # "medium" dile aro
 # Whisper ke tech shobdo chinte shahajjo kore
 WHISPER_HINT = ("Voice commands for Jarvis: add a task, mark the Jarvis task as done, "
                 "how many tasks do I have, give me my list, note this, delete all notes, "
-                "create a PDF, PowerPoint slides or an Excel spreadsheet about Next.js, React, "
-                "Node.js, MongoDB, JWT and APIs.")
+                "log an application, make a doc, create a PDF, PowerPoint slides or an Excel spreadsheet "
+                "about Next.js, React hooks like useState and useEffect, Node.js, MongoDB, JWT, Groq and APIs.")
+
+# Whisper er jana vul shuddho kore (accent e 'doc' -> 'dog', 'Groq' -> 'Glock' ...)
+STT_FIXES = [
+    (r"\b(make|create|write|open|show)(\s+(?:a|the|my|me a))?\s+dog\b", r"\1\2 doc"),
+    (r"\bglock\b", "Groq"),
+    (r"\blog\s*in\s+(an?\s+)?application\b", "log an application"),
+    (r"\bu\s?state\b|\buse state\b", "useState"),
+    (r"\buser effect\b|\bu\s?effect\b|\buse effect\b", "useEffect"),
+]
+
+
+def fix_stt(text):
+    for pat, repl in STT_FIXES:
+        text = re.sub(pat, repl, text, flags=re.I)
+    return text
 HINT_FILE_NAMES = True        # recent file er naam Whisper ke hint dey (Groq e jay). Na chaile False
 LANG_CODES = {"english": "en", "bengali": "bn", "bangla": "bn", "hindi": "hi"}
 LANG_NAMES = {"en": "English", "bn": "Bangla (use Bangla script)", "hi": "Hindi"}
@@ -87,6 +102,13 @@ STT_BACKEND = os.getenv(
 )
 
 
+def _now_text():
+    now = datetime.now().astimezone()
+    part = ("night" if now.hour < 5 else "morning" if now.hour < 12 else "afternoon" if now.hour < 17
+            else "evening" if now.hour < 21 else "night")
+    return f"{now:%A, %d %B %Y}, {now:%I:%M %p} ({part})"
+
+
 def build_system_prompt(lang="en", extra=""):
     """Prottek proshne notun kore toiri hoy. Tool er rule shudhu dorkari tool er sathe ashe."""
     prompt = (
@@ -98,14 +120,17 @@ def build_system_prompt(lang="en", extra=""):
         "Persona: calm, polite, a little witty, like JARVIS in the Iron Man films. Call the user "
         "'sir' naturally, once per reply. If the user only greets you ('Hey Jarvis'), answer with a "
         "short greeting such as 'Hello, sir.' or 'At your service, sir.' When you finish something, "
-        "confirm like 'Your presentation is ready, sir.'\n"
-        f"Current local time: {datetime.now().astimezone():%A, %d %B %Y, %H:%M (%Z)}. Use it for any time or "
-        "date question; never web_search for it.\n"
+        "confirm briefly in character, e.g. 'Done, sir.', naming only what you actually did. Create slides or "
+        "documents only when the user asked for them.\n"
+        f"Current local time: {_now_text()}. Use it for any time or date question and never web_search for it. "
+        "Say times like a person ('It is twelve forty-eight at night, sir'); never read digits like 00:48, "
+        "seconds, or the time zone.\n"
         "Style (your replies are spoken aloud):\n"
         f"- The user is speaking {LANG_NAMES.get(lang, 'English')}. Reply in that language, "
         "unless they ask for another one.\n"
         "- 1-3 short sentences. No markdown, bullets, emojis, or URLs. Reply once, never repeat yourself, "
-        "never write your reasoning. Never read out a URL; anything longer than three sentences (emails, "
+        "never write your reasoning. Never read out a URL: if the user asks for a link put it in your reply once "
+        "and say 'I copied the link to your clipboard, sir.' Anything longer than three sentences (emails, "
         "letters, posts, essays) goes through a tool or a document, never into your spoken reply.\n"
         "- 'Wait a minute' or 'hold on' just means pause: answer 'Of course, sir.' and set no timer.\n"
         "- The user's speech is transcribed automatically and may contain mistakes. If a request "
@@ -247,7 +272,7 @@ def transcribe(audio):
     if text and is_hallucination(text):
         print(f"(noise ignore kora holo: {text[:60]})")
         text = ""
-    return text, lang
+    return fix_stt(text), lang
 
 
 # ---------- Text to speech ----------
@@ -403,6 +428,7 @@ def greet():
 def speak(text, lang):
     """Bangla okkhor thakle Bangla voice. Prothom tukra ager bajay, baki gulo oi shomoy toiri hoy."""
     global _edge_fail, _edge_pause_until
+    text = re.sub(r"https?://[^\s]+?([.,;!?]*)(?=\s|$)", r"the link\1", text or "")   # URL kokhono voice e porbe na
     if not re.search(r"\w", text or ""):
         return
     is_bn = bool(re.search(r"[\u0980-\u09FF]", text))
@@ -441,6 +467,9 @@ def speak(text, lang):
 def clean_reply(text):
     """gpt-oss maajhe maajhe nijer 'chinta' ba dui bar uttor ekshathe likhe fele; ota kete dey."""
     text = (text or "").strip()
+    text = re.sub(r"[ \t]{2,}", " ", text)                      # "Tell me        ...  ?" er moto faka
+    if re.search(r"(?:\.{2,}|\u2026)\s*[?!]", text):               # "Tell me ... ?Can you ..." -> asol proshno ta
+        text = re.split(r"(?:\.{2,}|\u2026)\s*[?!]\s*", text, 1)[-1]
     if re.search(r"[.\u2026]{6,}", text) and "\n\n" in text:
         text = [p for p in re.split(r"\n\s*\n", text) if p.strip()][-1]
     text = re.split(r"\b(?:User|Assistant|System):", text)[0]
@@ -480,7 +509,7 @@ def _chat(**kw):
             if kw.get("extra_body") and "reasoning" in msg:
                 kw = {k: v for k, v in kw.items() if k != "extra_body"}
                 continue
-            if "failed to parse tool call" in msg and attempt < 2:
+            if ("failed to parse tool call" in msg or "tool call validation failed" in msg) and attempt < 2:
                 print("(model er tool call format vul chhilo, abar chesta korchi...)")
                 continue
             raise
@@ -515,6 +544,8 @@ def ask_llm(user_text, lang="en"):
     global _carry, _turn_tokens
     _turn_tokens = 0
     tools_common.TURN += 1
+    if interview_active():
+        bump_interview_turn()
     tools_common.note_user_text(user_text)
     tools, tool_rules, matched = select_tools(user_text, _carry)
     _carry = matched or _carry      # "yes" jaatiyo follow-up e ager tool thake
@@ -569,6 +600,20 @@ def ask_llm(user_text, lang="en"):
     _compact_turn(start)
     _trim_history()
     return "Sorry, I did not get that. Could you say it again?"
+
+
+DANGLING = {"the", "a", "an", "and", "or", "but", "to", "for", "of", "in", "on", "with", "is", "are", "was", "as",
+            "at", "by", "about", "my", "that", "this", "if", "so", "because", "company", "from", "into", "than",
+            "then", "also", "like"}
+
+
+def looks_incomplete(text):
+    """Whisper kotha shesh hole prai . ? ! dey. Na dile + 3+ shobdo (ba 'the/and/is' e shesh) = majhe kete geche."""
+    t = (text or "").strip()
+    if not t or re.search(r"[.?!\u0964][\"'\u201d\u2019)]*$", t):
+        return False
+    words = re.findall(r"[A-Za-z']+", t.lower())
+    return len(words) >= 3 or bool(words and words[-1] in DANGLING)
 
 
 def is_end_command(text):
@@ -644,6 +689,17 @@ def main():
                 break
             t1 = time.time()
             text, lang = transcribe(audio)
+            for _ in range(2):      # kotha majhe kete gele aro 4 sec shune jore dey
+                if not (text and looks_incomplete(text) and not is_end_command(text)):
+                    break
+                print("(kotha shesh hoyni mone hocche, aro shunchi...)")
+                more = record_until_silence(4, 30)
+                if more is None:
+                    break
+                extra_text, _ = transcribe(more)
+                if not extra_text:
+                    break
+                text = f"{text.rstrip(',')} {extra_text}"
             t_stt = time.time() - t1
             if not text:
                 continue
@@ -667,6 +723,9 @@ def main():
                 speak("Sorry, sir, I had a problem with that. Please try again.", "en")
                 continue
             print(f"Jarvis: {reply}")
+            links = re.findall(r"https?://[^\s)>\]]+", reply)
+            if links and tools_common.copy_to_clipboard(links[0].rstrip(".,;")):
+                print("(link clipboard e copy hoyeche: Cmd+V)")
             print(f"[time: stt {t_stt:.1f}s | llm {t_llm:.1f}s | tokens {_turn_tokens}]\n")
             last_reply, last_user = reply, text
             speak(reply, lang if lang in VOICES else "en")
@@ -678,4 +737,3 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nBye!")
-        
