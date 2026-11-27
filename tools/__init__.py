@@ -54,7 +54,7 @@ GROUPS = {
         tools=["create_spreadsheet"],
         prompt="- create_spreadsheet: from table data the user gives or that you research. Reply with ONE short sentence after."),
     "notes": dict(
-        pattern=r"\b(tasks?|to-?dos?|notes?|remind\w*|remember|forget|delete|done|complete\w*|list|how many|clear)\b",
+        pattern=r"\b(tasks?|to-?dos?|notes?|remind\w*|remember|forget|delete|done|complete\w*|list|how many|clear|plan|plans|schedule|agenda)\b",
         tools=["add_note", "list_notes", "add_task", "list_tasks", "complete_task",
                "delete_task", "delete_notes", "remember", "forget"],
         prompt="- Tasks: add_task for any task, to-do, or reminder item; add_note only when the user says note. "
@@ -98,9 +98,14 @@ GROUPS = {
                "open_email_draft where=gmail opens Gmail (no attachment: the resume must be dragged in, never say it "
                "is attached); where=mail opens the Mac Mail app with the resume attached."),
     "system": dict(
-        pattern=r"\b(open|launch|start|timer|minutes?|seconds?|website|browser|github|youtube|app|play|songs?|music|video)\b",
+        pattern=r"\b(open|launch|start|timer|minutes?|seconds?|website|browser|github|youtube|app|play|songs?|music|video|"
+                r"remind\w*|notify|alarm|alert|wake me)\b",
         tools=["open_app", "open_url", "play_music", "set_timer"],
-        prompt="- open_app, open_url, set_timer when asked. Songs/videos: play_music(query), NEVER invent YouTube "
+        prompt="- open_app, open_url, set_timer when asked. For 'remind/notify/wake me at <time>' work out the minutes "
+               "from the current local time and call set_timer (it only works while Jarvis keeps running: say so once). "
+               "Never promise a reminder without calling it. Websites (Facebook, YouTube, LinkedIn, Gmail, GitHub...) go to open_url; installed apps (Chrome, Safari, VS Code, "
+               "Mail, Spotify...) go to open_app; if open_app says not found, try open_url once. "
+               "Songs/videos: play_music(query), NEVER invent YouTube "
                "links. open_url only for a site the user named (its home page). Never web_search to open an "
                "app or site."),
 }
@@ -130,3 +135,4 @@ def run_tool(name, args):
         return str(fn(args or {}))[:MAX_RESULT_CHARS]
     except Exception as e:  # tool error LLM ke bole dey, program crash kore na
         return f"Tool {name} failed: {e}"
+    

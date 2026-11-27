@@ -193,11 +193,25 @@ def find_jobs(args):
     key = os.getenv("TAVILY_API_KEY")
     if not key:
         return "Web search is not set up (TAVILY_API_KEY missing)."
+    said = (common.LAST_USER_TEXT or "").lower()
     loc = (args.get("location") or "").strip()
-    if loc and loc.lower() not in (common.LAST_USER_TEXT or "").lower():
+    if loc and loc.lower() not in said:
         loc = ""        # user bole ni, model nijei guess korechhe (jemon New York)
+    if not loc and re.search(r"\b(us|usa|u\.s\.|united states|america)\b", said):
+        loc = "United States"
+    if not loc:
+        for p in ("dhaka", "chittagong", "chattogram", "sylhet", "khulna", "rajshahi", "bangladesh", "india", "canada",
+                  "uk", "germany", "singapore", "dubai", "australia", "malaysia"):
+            if re.search(rf"\b{p}\b", said):
+                loc = "UK" if p == "uk" else p.title()
+                break
+    q = args.get("query", "")
+    if not loc and re.search(r"\b(remote|worldwide|anywhere|global|abroad|international)\b", said + " " + q.lower()):
+        loc = "remote"      # user remote/abroad chaiche: default Bangladesh jog korbo na
     place = (loc or os.getenv("JOB_LOCATION") or "Bangladesh").strip()
-    query = f"{args.get('query', '')} {place} job opening apply".strip()
+    if "remote" in said and "remote" not in place.lower() and "remote" not in q.lower():
+        place += " remote"
+    query = f"{q} {place} job opening apply".strip()
     print(f"[Jobs khujchi: {query}]")
     domains = ["bdjobs.com", "linkedin.com", "indeed.com", "glassdoor.com", "wellfound.com",
                "remoteok.com", "weworkremotely.com", "internshala.com"]
@@ -231,13 +245,17 @@ def find_jobs(args):
                 picks.append((n, str(it.get("why", ""))[:120]))
     except Exception:
         picks = [(i, "") for i in range(1, min(4, len(results) + 1))]
+    if not picks:                       # ranker kichu dey ni: prothom 3ta dekhai
+        picks = [(i, "") for i in range(1, min(4, len(results) + 1))]
     # Title ar URL shobshomoy asol search result theke (LLM er banano na)
     lines = [f"{results[n - 1].get('title', '')} - {why} - {results[n - 1].get('url', '')}".replace(" -  - ", " - ")
              for n, why in picks[:5]]
+    common.LAST_LINKS[:] = [results[n - 1].get("url", "") for n, _ in picks[:5] if results[n - 1].get("url")]
+    common.note_links(x.get("url") for x in results)
     text = "\n".join(lines)
     print(f"\n----- JOB SHORTLIST ({place}) -----\n" + text + "\n-------------------------\n")
-    return ("Shortlist (also shown in the terminal; summarise the top 2-3 aloud, no URLs, and offer to log them "
-            "as wishlist): " + text)
+    return (f"Shortlist: exactly {len(lines)} item(s), mention no others and invent none (also shown in the "
+            "terminal; summarise the top 2-3 aloud, no URLs, and offer to log them as wishlist): " + text)
 
 
 # ------------------------------------------------------------------ tracker

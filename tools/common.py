@@ -55,6 +55,17 @@ def after_create(path):
 
 # ---- jarvis.py ekhane set kore ----
 USER_TEXTS = []        # shesh kichu user message (email recipient ke user bolechhe kina check korte)
+LAST_LINKS = []        # shesh job shortlist er link (user 'send me the link' bolle clipboard e copy korte)
+SEEN_LINKS = set()     # search/tool result e jei link shotti dekha geche (model nijer banano link dile chini)
+
+
+def note_links(urls):
+    SEEN_LINKS.update(u.strip().rstrip("/.,;") for u in urls if u)
+
+
+def link_seen(link):
+    l = (link or "").strip().rstrip("/.,;")
+    return any(l == u or l.startswith(u) or u.startswith(l) for u in SEEN_LINKS if u)
 LLM = None             # OpenAI-compatible client
 LLM_MODEL = ""
 TURN = 0               # prottek user proshne +1 (email "yes" approval er jonno)

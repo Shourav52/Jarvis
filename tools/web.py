@@ -3,6 +3,8 @@ import os
 
 import requests
 
+from . import common
+
 TOOLS = [{
     "type": "function",
     "function": {
@@ -37,6 +39,7 @@ def web_search(args):
     parts = []
     if data.get("answer"):
         parts.append("Summary: " + data["answer"])
+    common.note_links(x.get("url") for x in data.get("results", []))
     for item in data.get("results", [])[:4]:
         content = (item.get("content") or "")[:300]
         parts.append(f"- {item.get('title', '')} ({item.get('url', '')}): {content}")
